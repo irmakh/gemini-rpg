@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Player, Monster, Item, QuestObjective, Ability, MapCell, CombatAction, Vendor } from '../types';
+import { Player, Monster, Item, QuestObjective, Ability, MapCell, Vendor } from '../types';
 import { MAP_WIDTH, MAP_HEIGHT } from '../constants';
 
 const API_KEY = process.env.API_KEY;
@@ -10,7 +10,7 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-export const generateImageFromPrompt = async (prompt: string, aspectRatio: '1:1' | '16:9' | '4:3' | '3:4' | '9:16' = '1:1'): Promise<string> => {
+export const generateImageFromPrompt = async (prompt: string, aspectRatio: '1:1' | '16:9' | '4:3' | '3:4' | '9:16' = '1:1', useImagen: boolean = true): Promise<string> => {
     const getPlaceholderDimensions = (aspectRatio: string) => {
         switch (aspectRatio) {
             case '16:9': return '1024x576';
@@ -22,8 +22,13 @@ export const generateImageFromPrompt = async (prompt: string, aspectRatio: '1:1'
         }
     };
     const dimensions = getPlaceholderDimensions(aspectRatio);
-    const placeholderUrl = `https://dummyimage.com/${dimensions}/1e293b/94a3b8.png&text=Image+Unavailable`;
+    const placeholderUrl = `https://dummyimage.com/${dimensions}/1e293b/94a3b8.png&text=Image+Generation+Disabled`;
 
+    if (!useImagen) {
+        return placeholderUrl;
+    }
+
+    const errorPlaceholderUrl = `https://dummyimage.com/${dimensions}/1e293b/94a3b8.png&text=Image+Unavailable`;
     try {
         const imageResponse = await ai.models.generateImages({
             model: 'imagen-3.0-generate-002',
@@ -32,12 +37,12 @@ export const generateImageFromPrompt = async (prompt: string, aspectRatio: '1:1'
         });
         if (!imageResponse.generatedImages || imageResponse.generatedImages.length === 0) {
             console.error("Image generation failed to return an image for prompt:", prompt);
-            return placeholderUrl;
+            return errorPlaceholderUrl;
         }
         return `data:image/jpeg;base64,${imageResponse.generatedImages[0].image.imageBytes}`;
     } catch (error) {
         console.error("Image generation API call failed for prompt:", prompt, error);
-        return placeholderUrl;
+        return errorPlaceholderUrl;
     }
 }
 
@@ -59,7 +64,7 @@ const characterSchema = {
     required: ["backstory", "stats", "imageGenPrompt"]
 };
 
-export const generateCharacter = async (name: string, characterClass: 'Warrior' | 'Mage' | 'Rogue'): Promise<Partial<Player>> => {
+export const generateCharacter = async (name: string, characterClass: 'Warrior' | 'Mage' | 'Rogue', useImagen: boolean): Promise<Partial<Player>> => {
     const prompt = `Generate a starting character for a fantasy RPG.
     Name: ${name}
     Class: ${characterClass}
@@ -76,7 +81,7 @@ export const generateCharacter = async (name: string, characterClass: 'Warrior' 
     });
 
     const characterData = JSON.parse(response.text);
-    const imageUrl = await generateImageFromPrompt(characterData.imageGenPrompt, '1:1');
+    const imageUrl = await generateImageFromPrompt(characterData.imageGenPrompt, '1:1', useImagen);
 
     return {
         ...characterData,
@@ -101,14 +106,16 @@ const itemSchema = {
         id: { type: Type.STRING, description: "Unique ID, e.g., 'item_123'."},
         name: { type: Type.STRING },
         description: { type: Type.STRING, description: "Flavorful description of the item." },
-        type: { type: Type.STRING, enum: ['weapon', 'armor', 'helmet', 'boots', 'ring', 'potion', 'misc'] },
+        type: { type: Type.STRING, enum: ['weapon', 'armor', 'helmet', 'boots', 'ring', 'potion', 'misc', 'gem'] },
+        quantity: { type: Type.INTEGER, description: "Number of items in the stack. Should be 1 for equipment, and can be > 1 for potions/gems." },
+        grade: { type: Type.STRING, enum: ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'], description: "The rarity grade of the item." },
         stats: itemStatsSchema,
         healAmount: { type: Type.INTEGER, description: "The amount of health this item restores if it is a potion. Omit or set to null otherwise." },
         manaAmount: { type: Type.INTEGER, description: "The amount of mana this item restores if it is a potion. Omit or set to null otherwise." },
-        buyPrice: { type: Type.INTEGER, description: "Price to buy this item from a vendor." },
+        buyPrice: { type: Type.INTEGER, description: "Price to buy this item from a vendor. Not applicable to all items." },
         sellPrice: { type: Type.INTEGER, description: "Price when selling this item to a vendor. Should be about half of the buy price." },
     },
-    required: ["id", "name", "description", "type"]
+    required: ["id", "name", "description", "type", "quantity"]
 };
 
 const dungeonSchema = {
@@ -150,7 +157,7 @@ const dungeonSchema = {
                 id: { type: Type.STRING, description: "Unique ID for the vendor, e.g., 'vendor_grizelda'." },
                 inventory: {
                     type: Type.ARRAY,
-                    description: "List of 4-6 items the vendor sells. Include potions and equipment relevant to the player's level.",
+                    description: "List of 5-8 items the vendor sells. Include potions and equipment relevant to the player's level.",
                     items: itemSchema,
                 }
             },
@@ -160,12 +167,20 @@ const dungeonSchema = {
     required: ["name", "description", "imageGenPrompt", "quest", "entities", "vendor"]
 };
 
-export const generateDungeon = async (level: number) => {
+export const generateDungeon = async (level: number, useImagen: boolean) => {
     const prompt = `Generate a new, unique dungeon level for a fantasy RPG for a level ${level} player. The dungeon needs a distinct theme (e.g., fiery, icy, crypts).
     The theme should be cohesive.
     Create a quest for this level. The quest objective must be to kill a unique boss monster.
     Generate ${Math.min(4, level + 1)} regular monsters and 1 boss monster appropriate for this level and theme. The boss monster should be the last in the 'entities' list and marked as the quest target. Provide an image generation prompt for each monster.
-    Also generate one vendor with an inventory of 5 thematically appropriate items (potions, equipment) for a player of this level. Ensure items have buy and sell prices, with sell being about half of buy.`;
+    Also generate one vendor with an inventory of 5-8 thematically appropriate items for a player of this level. Ensure items have buy and sell prices, with sell being about half of buy.
+    
+    Item Rules:
+    - All items must have a rarity 'grade' (Common, Uncommon, Rare, Epic, Legendary).
+    - The quality and power of vendor items MUST be appropriate for a level ${level} player. Higher level dungeons should have vendors with rarer and more powerful items (e.g., more 'Rare' or 'Epic' items for level > 5).
+    - All items must have a 'quantity'.
+    - For stackable items like potions and gems, provide a 'quantity' between 3 and 10.
+    - For equipment (weapons, armor, etc.), the 'quantity' must always be 1.
+    `;
 
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
@@ -179,7 +194,7 @@ export const generateDungeon = async (level: number) => {
 
     const dungeonData = JSON.parse(response.text);
 
-    const backgroundImageUrl = await generateImageFromPrompt(dungeonData.imageGenPrompt, '1:1');
+    const backgroundImageUrl = await generateImageFromPrompt(dungeonData.imageGenPrompt, '1:1', useImagen);
 
     const monsters: Monster[] = dungeonData.entities.map((entity: any) => {
         const hp = entity.level * 10 + (entity.isQuestTarget ? 20 : 0);
@@ -265,13 +280,13 @@ const combatActionSchema = {
         goldGained: { type: Type.INTEGER, description: "Gold awarded if monster is defeated. 0 otherwise."},
         loot: {
             ...itemSchema,
-            description: "A single item dropped by the monster, if defeated. 25% chance of dropping loot. Can be null.",
+            description: "A single item dropped by the monster, if defeated. 20% chance of dropping loot. Can be null.",
         }
     },
     required: ["narration", "playerDamage", "monsterDamage", "monsterDefeated", "xpGained", "goldGained"]
 };
 
-export const generateCombatAction = async (player: Player, monster: Monster, action: CombatAction, playerDefense: number) => {
+export const generateCombatAction = async (player: Player, monster: Monster, action: any, playerDefense: number) => {
     let actionText: string;
     switch (action.type) {
         case 'attack':
@@ -302,8 +317,9 @@ export const generateCombatAction = async (player: Player, monster: Monster, act
     - Player's Defense reduces incoming damage. High defense should significantly lower playerDamage.
     - Calculate damage for both player and monster for this turn exchange.
     - If the monster is defeated by this action, set monsterDefeated to true.
-    - If defeated, calculate XP (around 25 * monster level) and gold (around 10 * monster level).
-    - If defeated, 30% chance of a loot drop. If loot is dropped, it must have stats if it's equippable and prices. If it is a potion, it must have a healAmount or manaAmount. Sell price should be half buy price.
+    - If defeated, calculate XP (around 25 * monster level) and gold (around 20 * monster level).
+    - If defeated, there is a 20% chance of a loot drop. The loot can be an equippable item, a potion, or a Gem item (type: 'gem', grade: 'Uncommon', sellPrice: 50). All dropped items must have a 'grade', with 'Common' or 'Uncommon' being most likely for monster drops.
+    - All dropped items MUST have a 'quantity' field. For equipment, this is always 1. For potions or gems, it can be 1-2.
     `;
     
     const response = await ai.models.generateContent({
@@ -327,7 +343,7 @@ const abilitiesSchema = {
             id: { type: Type.STRING, description: "Unique ID, e.g., 'ability_fireball'."},
             name: { type: Type.STRING },
             description: { type: Type.STRING, description: "Short description of what the ability does in turn-based combat." },
-            manaCost: { type: Type.INTEGER, description: "The mana cost to use this ability. Should be balanced with its power."}
+            manaCost: { type: Type.INTEGER, description: "The mana cost to use this ability. Should be balanced with its power level."}
         },
         required: ["id", "name", "description", "manaCost"]
     }
@@ -335,8 +351,8 @@ const abilitiesSchema = {
 
 export const generateLevelUpAbilities = async (player: Player): Promise<Ability[]> => {
     const prompt = `Generate exactly 3 thematic and unique combat abilities for a Level ${player.level} fantasy character to choose from upon leveling up. These are for a turn-based combat system.
-    The character's base stats are: Strength ${player.stats.strength}, Dexterity ${player.stats.dexterity}, Intelligence ${player.stats.intelligence}. 
-    The abilities should reflect these stats (e.g., high strength -> mighty blows, high intelligence -> powerful spells).
+    The character's class is ${player.characterClass} and base stats are: Strength ${player.stats.strength}, Dexterity ${player.stats.dexterity}, Intelligence ${player.stats.intelligence}. 
+    The abilities should reflect their class (e.g., high strength -> mighty blows, high intelligence -> powerful spells).
     Each ability must have a reasonable 'manaCost' associated with it, balanced for its power level.`;
     
     const response = await ai.models.generateContent({
@@ -357,12 +373,13 @@ const lootListSchema = {
 };
 
 export const generateLoot = async (playerLevel: number): Promise<Item[]> => {
-    const prompt = `Generate a list of 1 to 3 interesting fantasy RPG loot items found in a chest, appropriate for a level ${playerLevel} character. 
+    const prompt = `Generate a list of 1 to 2 interesting fantasy RPG loot items found in a chest, appropriate for a level ${playerLevel} character. 
     - Ensure all items have a buyPrice and a sellPrice. Sell price should be roughly half the buy price.
-    - If an item is equippable (weapon, armor, helmet, boots, ring), give it stat bonuses.
-    - If an item is a potion, give it a 'healAmount' or 'manaAmount' property with a value between 15 and 50. It can have one or both.
-    - Stat bonuses should be appropriate for the player's level (e.g., +1 for low level, up to +5 for high level).
-    - Weapons boost strength/dexterity. Armor/helmets/boots boost defense. Rings can boost any stat.`;
+    - All items must have a 'grade': Common, Uncommon, Rare, Epic, or Legendary. Rarity should be skewed towards common/uncommon, with a very small chance for Epic or Legendary.
+    - All items must have a 'quantity'. For equipment, this MUST be 1. For potions or gems, it can be 1-3.
+    - If an item is equippable (weapon, armor, helmet, boots, ring), give it stat bonuses appropriate for its grade and the player's level.
+    - If an item is a potion, give it a 'healAmount' or 'manaAmount' property.
+    - Items can also be 'gem' type which are for selling.`;
     const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,

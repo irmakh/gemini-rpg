@@ -5,9 +5,10 @@ interface MenuScreenProps {
   onLoadGame: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onContinue: () => void;
   canContinue: boolean;
+  onGoToSettings: () => void;
 }
 
-const MenuScreen: React.FC<MenuScreenProps> = ({ onNewGame, onLoadGame, onContinue, canContinue }) => {
+const MenuScreen: React.FC<MenuScreenProps> = ({ onNewGame, onLoadGame, onContinue, canContinue, onGoToSettings }) => {
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 text-slate-100">
       <div className="text-center bg-slate-800/50 p-10 rounded-xl border border-slate-700 shadow-2xl backdrop-blur-sm">
@@ -34,6 +35,12 @@ const MenuScreen: React.FC<MenuScreenProps> = ({ onNewGame, onLoadGame, onContin
             Load Game
             <input type="file" accept=".json" onChange={onLoadGame} className="hidden" />
           </label>
+           <button
+            onClick={onGoToSettings}
+            className="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded-lg text-xl transition-all duration-300 transform hover:scale-105 shadow-lg"
+          >
+            Settings
+          </button>
         </div>
       </div>
     </div>

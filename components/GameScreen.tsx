@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { Player, MapCell, Monster } from '../types';
 import { MAP_WIDTH, MAP_HEIGHT } from '../constants';
-import { PlayerIcon, MonsterIcon, ChestIcon, ExitIcon, QuestMarkerIcon, TrapIcon, VendorIcon } from './icons';
+import { PlayerIcon, MonsterIcon, ChestIcon, ExitIcon, QuestMarkerIcon, TrapIcon, VendorIcon, WarriorIcon, MageIcon, RogueIcon } from './icons';
+import Legend from './Legend';
 
 interface GameScreenProps {
   map: MapCell[][];
@@ -87,9 +88,22 @@ const GameScreen: React.FC<GameScreenProps> = ({ map, player, monsters, onPlayer
         </div>
     );
   };
+  
+  const PlayerMapIcon = () => {
+      const iconProps = { className: "w-full h-full text-cyan-400" };
+      switch(player.characterClass) {
+          case 'Warrior': return <WarriorIcon {...iconProps} />;
+          case 'Mage': return <MageIcon {...iconProps} />;
+          case 'Rogue': return <RogueIcon {...iconProps} />;
+          default: return <PlayerIcon {...iconProps} />;
+      }
+  };
 
   return (
     <div className="relative w-full h-full bg-black rounded-lg border-2 border-slate-700 overflow-hidden">
+      <div className="absolute top-2 left-2 z-20">
+        <Legend />
+      </div>
       <div 
         className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" 
         style={{ backgroundImage: `url(${backgroundImageUrl})`, opacity: 0.5 }}
@@ -131,7 +145,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ map, player, monsters, onPlayer
                 filter: 'drop-shadow(0 0 5px #22d3ee)',
             }}
         >
-          <PlayerIcon className="w-full h-full text-cyan-400" />
+          <PlayerMapIcon />
         </div>
       </div>
     </div>

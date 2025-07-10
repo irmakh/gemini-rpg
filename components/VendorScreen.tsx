@@ -1,15 +1,26 @@
 
+
 import React, { useState } from 'react';
-import { Player, Vendor, Item, ItemType } from '../types';
-import { PotionIcon, WeaponIcon, ArmorIcon, MiscIcon } from './icons';
+import { Player, Vendor, Item, ItemType, ItemGrade } from '../types';
+import { PotionIcon, WeaponIcon, ArmorIcon, MiscIcon, GemIcon } from './icons';
 
 interface VendorScreenProps {
   player: Player;
   vendor: Vendor;
   onBuy: (item: Item, vendorId: string) => void;
-  onSell: (item: Item) => void;
+  onSell: (item: Item, vendorId: string) => void;
   onClose?: () => void;
 }
+
+const getGradeColor = (grade: ItemGrade | undefined) => {
+    switch (grade) {
+        case 'Uncommon': return 'text-green-400';
+        case 'Rare': return 'text-blue-400';
+        case 'Epic': return 'text-purple-500';
+        case 'Legendary': return 'text-orange-400';
+        default: return 'text-yellow-300'; // Common items still stand out
+    }
+};
 
 const ItemTypeIcon: React.FC<{ type: ItemType }> = ({ type }) => {
     const iconClass = "w-6 h-6 mr-3 flex-shrink-0";
@@ -21,6 +32,7 @@ const ItemTypeIcon: React.FC<{ type: ItemType }> = ({ type }) => {
             return <ArmorIcon className={`${iconClass} text-sky-400`} />;
         case 'ring': return <MiscIcon className={`${iconClass} text-yellow-300`} />;
         case 'potion': return <PotionIcon className={`${iconClass} text-pink-400`} />;
+        case 'gem': return <GemIcon className={`${iconClass} text-teal-300`} />;
         case 'misc': return <MiscIcon className={`${iconClass} text-gray-400`} />;
         default: return null;
     }
@@ -39,7 +51,10 @@ const VendorItemRow: React.FC<{
         <div className="flex items-center gap-4 p-2 bg-slate-700/50 rounded-md hover:bg-slate-700/80">
             <ItemTypeIcon type={item.type} />
             <div className="flex-grow">
-                <p className="font-bold text-yellow-300">{item.name}</p>
+                <p className={`font-bold ${getGradeColor(item.grade)}`}>
+                    {item.name}
+                    {item.quantity > 1 && <span className="text-sm text-slate-300 font-normal ml-2">(x{item.quantity})</span>}
+                </p>
                 <p className="text-xs text-slate-400 italic">{item.description}</p>
                  <div className="flex gap-4 text-xs mt-1">
                     {item.stats && Object.entries(item.stats).map(([stat, val]) => val !== 0 && <span key={stat}>{stat.slice(0,3).toUpperCase()}: {val > 0 ? `+${val}`: val}</span>)}
@@ -69,6 +84,8 @@ const VendorItemRow: React.FC<{
 
 const VendorScreen: React.FC<VendorScreenProps> = ({ player, vendor, onBuy, onSell, onClose }) => {
   const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy');
+
+  const sellableInventory = player.inventory.filter(item => item.sellPrice);
 
   return (
     <div className="w-full max-w-2xl max-h-[80vh] flex flex-col">
@@ -107,13 +124,13 @@ const VendorScreen: React.FC<VendorScreenProps> = ({ player, vendor, onBuy, onSe
             )) : <p className="text-slate-500 text-center py-8">I'm all out of stock!</p>
         )}
         {activeTab === 'sell' && (
-             player.inventory.length > 0 ? player.inventory.map(item => (
+             sellableInventory.length > 0 ? sellableInventory.map(item => (
                 <VendorItemRow 
                     key={item.id} 
                     item={item} 
                     playerGold={player.gold} 
                     action="sell" 
-                    onTransaction={onSell}
+                    onTransaction={(i) => onSell(i, vendor.id)}
                 />
             )) : <p className="text-slate-500 text-center py-8">You have nothing to sell.</p>
         )}

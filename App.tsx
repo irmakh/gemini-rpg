@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { GameState, Player, World, Item, Ability, MapCell, Monster, QuestObjective, EquipmentSlot, EQUIPMENT_SLOTS, CombatAction, Vendor } from './types';
+import { GameState, Player, World, Item, Ability, MapCell, Monster, QuestObjective, EquipmentSlot, EQUIPMENT_SLOTS, CombatAction, Vendor, CharacterClass, GameSettings } from './types';
 import { INITIAL_GAME_STATE, MAP_HEIGHT, MAP_WIDTH } from './constants';
 import * as geminiService from './services/geminiService';
 import * as fileUtils from './utils/fileUtils';
@@ -12,10 +12,12 @@ import LogPanel from './components/LogPanel';
 import ActionModal from './components/ActionModal';
 import MenuScreen from './components/MenuScreen';
 import CharacterCreationScreen from './components/CharacterCreationScreen';
-import { LoadingIcon, PlayerIcon, MonsterIcon, ChestIcon, ExitIcon, QuestMarkerIcon, TrapIcon, VendorIcon, BackpackIcon } from './components/icons';
+import { LoadingIcon, BackpackIcon } from './components/icons';
 import PauseModal from './components/PauseModal';
 import VendorScreen from './components/VendorScreen';
 import InventoryScreen from './components/InventoryScreen';
+import SettingsScreen from './components/SettingsScreen';
+
 
 const getEquipmentStats = (equipment: Player['equipment']) => {
     const totalStats = { strength: 0, dexterity: 0, intelligence: 0, defense: 0 };
@@ -55,21 +57,28 @@ const GameActions: React.FC<{
     );
 };
 
-const Legend = () => (
-    <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 text-sm text-slate-300 shadow-lg h-full">
-        <h3 className="font-bold text-xl text-cyan-400 mb-3 border-b border-slate-600 pb-2">Legend</h3>
-        <ul className="space-y-1">
-            <li className="flex items-center gap-2"><PlayerIcon className="w-5 h-5 text-cyan-400"/> Player</li>
-            <li className="flex items-center gap-2"><MonsterIcon className="w-5 h-5 text-red-500"/> Monster</li>
-            <li className="flex items-center gap-2"><ChestIcon className="w-5 h-5 text-amber-500"/> Treasure</li>
-            <li className="flex items-center gap-2"><VendorIcon className="w-5 h-5 text-emerald-400"/> Vendor</li>
-            <li className="flex items-center gap-2"><ExitIcon className="w-5 h-5 text-purple-500"/> Exit</li>
-            <li className="flex items-center gap-2"><TrapIcon className="w-5 h-5 text-gray-400"/> Triggered Trap</li>
-            <li className="flex items-center gap-2"><QuestMarkerIcon className="w-5 h-5 text-yellow-300"/> Quest Target</li>
-        </ul>
-    </div>
-);
+const addItemToInventory = (inventory: Item[], itemToAdd: Item): Item[] => {
+    const newInventory = [...inventory];
+    const isStackable = itemToAdd.type === 'potion' || itemToAdd.type === 'gem';
 
+    if (isStackable) {
+        const existingStackIndex = newInventory.findIndex(i => i.name === itemToAdd.name && i.type === itemToAdd.type);
+        if (existingStackIndex > -1) {
+            newInventory[existingStackIndex] = {
+                ...newInventory[existingStackIndex],
+                quantity: newInventory[existingStackIndex].quantity + itemToAdd.quantity,
+            };
+            return newInventory;
+        }
+    }
+    
+    const newItem = { ...itemToAdd };
+    if (!isStackable) {
+        newItem.id = `item_${Date.now()}_${Math.random()}`;
+    }
+    newInventory.push(newItem);
+    return newInventory;
+};
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_GAME_STATE);
@@ -157,7 +166,7 @@ const App: React.FC = () => {
     setGameState(prev => ({...prev, isLoading: true}));
     addToLog(`Descending to dungeon level ${level}...`, true);
     try {
-        const areaData = await geminiService.generateDungeon(level);
+        const areaData = await geminiService.generateDungeon(level, gameState.settings.useImagen);
         
         const newWorld: World = {
             dungeonLevel: level,
@@ -194,7 +203,7 @@ const App: React.FC = () => {
         addToLog("Error: The ancient magic binding this dungeon is unstable. Please try again.", true);
         setGameState(prev => ({...prev, isLoading: false}));
     }
-  }, [addToLog, setModal]);
+  }, [addToLog, setModal, gameState.settings.useImagen]);
   
   const initiateCombat = useCallback(async (monster: Monster) => {
     addToLog(`You encounter a ${monster.name}!`, true);
@@ -202,7 +211,7 @@ const App: React.FC = () => {
     if (!monster.imageUrl && monster.imageGenPrompt) {
         setGameState(prev => ({ ...prev, isLoading: true }));
         
-        const imageUrl = await geminiService.generateImageFromPrompt(monster.imageGenPrompt);
+        const imageUrl = await geminiService.generateImageFromPrompt(monster.imageGenPrompt, '1:1', gameState.settings.useImagen);
         const monsterForCombat = { ...monster, imageUrl };
 
         setGameState(prev => {
@@ -229,7 +238,7 @@ const App: React.FC = () => {
             }
         }));
     }
-  }, [addToLog]);
+  }, [addToLog, gameState.settings.useImagen]);
 
   const openChest = useCallback(async (x: number, y: number) => {
     if (!gameState.player || !gameState.world) return;
@@ -237,11 +246,13 @@ const App: React.FC = () => {
     addToLog("You found a treasure chest!", true);
     try {
       const lootItems = await geminiService.generateLoot(gameState.player.level);
+      let newPlayerInventory = [...gameState.player.inventory];
       
       if (lootItems && lootItems.length > 0) {
         addToLog(`You open it and find:`, true);
         lootItems.forEach(loot => {
-            addToLog(`- ${loot.name}`, true);
+            addToLog(`- ${loot.name}${loot.quantity > 1 ? ` (x${loot.quantity})` : ''}`, true);
+            newPlayerInventory = addItemToInventory(newPlayerInventory, loot);
         });
       } else {
         addToLog("The chest is empty.", true);
@@ -254,7 +265,7 @@ const App: React.FC = () => {
       
       setGameState(prev => ({
         ...prev,
-        player: {...prev.player!, inventory: [...prev.player!.inventory, ...lootItems]},
+        player: {...prev.player!, inventory: newPlayerInventory},
         world: {...prev.world!, map: newMap},
         isLoading: false
       }));
@@ -298,62 +309,81 @@ const App: React.FC = () => {
      }
   }, [addToLog, gameState.player, gameState.world]);
 
-  const handleBuyItem = useCallback((item: Item, vendorId: string) => {
+  const handleBuyItem = useCallback((itemToBuy: Item, vendorId: string) => {
     setGameState(prev => {
-        if (!prev.player || !prev.world || !item.buyPrice || prev.player.gold < item.buyPrice) {
+        if (!prev.player || !prev.world || !itemToBuy.buyPrice || prev.player.gold < itemToBuy.buyPrice) {
             addToLog("You cannot afford that.", true);
             return prev;
         }
 
-        const newPlayer = {
-            ...prev.player,
-            gold: prev.player.gold - item.buyPrice,
-            inventory: [...prev.player.inventory, item]
-        };
+        const newPlayer = { ...prev.player };
+        const newWorld = { ...prev.world };
+        const vendorIndex = newWorld.vendors.findIndex(v => v.id === vendorId);
+        if (vendorIndex === -1) return prev;
 
-        const newVendors = prev.world.vendors.map(v => {
-            if (v.id === vendorId) {
-                return {
-                    ...v,
-                    inventory: v.inventory.filter(i => i.id !== item.id)
-                };
-            }
-            return v;
-        });
+        const newVendor = { ...newWorld.vendors[vendorIndex] };
+        const newVendorInventory = [...newVendor.inventory];
+        const itemIndexInVendor = newVendorInventory.findIndex(i => i.id === itemToBuy.id);
+        if (itemIndexInVendor === -1) return prev;
 
-        const newWorld = { ...prev.world, vendors: newVendors };
+        // Decrement or remove item from vendor
+        const vendorItem = newVendorInventory[itemIndexInVendor];
+        if (vendorItem.quantity > 1) {
+            newVendorInventory[itemIndexInVendor] = { ...vendorItem, quantity: vendorItem.quantity - 1 };
+        } else {
+            newVendorInventory.splice(itemIndexInVendor, 1);
+        }
+        newVendor.inventory = newVendorInventory;
 
-        addToLog(`You purchased ${item.name} for ${item.buyPrice} gold.`, true);
+        // Add item to player
+        const itemForPlayer = { ...itemToBuy, quantity: 1 };
+        newPlayer.inventory = addItemToInventory(newPlayer.inventory, itemForPlayer);
+        newPlayer.gold -= itemToBuy.buyPrice;
+
+        newWorld.vendors[vendorIndex] = newVendor;
+        
+        addToLog(`You purchased ${itemToBuy.name} for ${itemToBuy.buyPrice} gold.`, true);
 
         return { ...prev, player: newPlayer, world: newWorld };
     });
   }, [addToLog]);
 
-  const handleSellItem = useCallback((item: Item, vendorId: string) => {
+  const handleSellItem = useCallback((itemToSell: Item, vendorId: string) => {
     setGameState(prev => {
-        if (!prev.player || !item.sellPrice || !prev.world) {
+        if (!prev.player || !itemToSell.sellPrice || !prev.world) {
             addToLog("You cannot sell this item.", true);
             return prev;
         }
-
-        const newPlayer = {
-            ...prev.player,
-            gold: prev.player.gold + item.sellPrice,
-            inventory: prev.player.inventory.filter(i => i.id !== item.id)
-        };
         
-        const newVendors = prev.world.vendors.map(v => {
-            if (v.id === vendorId) {
-                // Add sorted item to vendor inventory
-                const newVendorInventory = [...v.inventory, item].sort((a,b) => (a.buyPrice || 0) - (b.buyPrice || 0));
-                return { ...v, inventory: newVendorInventory };
-            }
-            return v;
-        });
+        const newPlayer = { ...prev.player };
+        const newWorld = { ...prev.world };
         
-        const newWorld = { ...prev.world, vendors: newVendors };
+        // Remove item from player
+        const newPlayerInventory = [...newPlayer.inventory];
+        const itemIndexInPlayer = newPlayerInventory.findIndex(i => i.id === itemToSell.id);
+        if (itemIndexInPlayer === -1) return prev;
 
-        addToLog(`You sold ${item.name} for ${item.sellPrice} gold.`, true);
+        const playerItem = newPlayerInventory[itemIndexInPlayer];
+        if (playerItem.quantity > 1) {
+            newPlayerInventory[itemIndexInPlayer] = { ...playerItem, quantity: playerItem.quantity - 1 };
+        } else {
+            newPlayerInventory.splice(itemIndexInPlayer, 1);
+        }
+        newPlayer.inventory = newPlayerInventory;
+        newPlayer.gold += itemToSell.sellPrice;
+        
+        // Add item to vendor
+        const vendorIndex = newWorld.vendors.findIndex(v => v.id === vendorId);
+        if (vendorIndex === -1) return prev;
+        
+        const newVendor = { ...newWorld.vendors[vendorIndex] };
+        const itemForVendor = { ...itemToSell, quantity: 1 };
+        newVendor.inventory = addItemToInventory(newVendor.inventory, itemForVendor)
+            .sort((a,b) => (a.buyPrice || 0) - (b.buyPrice || 0));
+
+        newWorld.vendors[vendorIndex] = newVendor;
+        
+        addToLog(`You sold ${itemToSell.name} for ${itemToSell.sellPrice} gold.`, true);
         return { ...prev, player: newPlayer, world: newWorld };
     });
   }, [addToLog]);
@@ -378,7 +408,7 @@ const App: React.FC = () => {
             if (vendor) {
                  setModal(
                     <VendorScreen
-                        player={gameState.player}
+                        player={gameState.player!}
                         vendor={vendor}
                         onBuy={handleBuyItem}
                         onSell={(item: Item) => handleSellItem(item, vendor.id)}
@@ -565,7 +595,11 @@ const App: React.FC = () => {
             const potionIndex = finalPlayerState.inventory.findIndex(i => i.id === potion.id);
             if(potionIndex > -1) {
                 const newInventory = [...finalPlayerState.inventory];
-                newInventory.splice(potionIndex, 1);
+                if (newInventory[potionIndex].quantity > 1) {
+                    newInventory[potionIndex] = { ...newInventory[potionIndex], quantity: newInventory[potionIndex].quantity - 1 };
+                } else {
+                    newInventory.splice(potionIndex, 1);
+                }
                 finalPlayerState.inventory = newInventory;
             }
         }
@@ -580,13 +614,18 @@ const App: React.FC = () => {
         const newMonsterHp = Math.max(0, originalCombatState.monster.hp - result.monsterDamage);
 
         if (result.monsterDefeated || newMonsterHp <= 0) {
+            let rewardsLog = `You defeated the ${originalCombatState.monster.name} and gained ${result.xpGained} XP`;
             finalPlayerState.xp += result.xpGained;
-            finalPlayerState.gold += result.goldGained;
-            addToLog(`You defeated the ${originalCombatState.monster.name} and gained ${result.xpGained} XP and ${result.goldGained} Gold!`, true);
+            if (result.goldGained > 0) {
+                finalPlayerState.gold += result.goldGained;
+                rewardsLog += ` and ${result.goldGained} Gold`;
+            }
+            rewardsLog += `!`;
+            addToLog(rewardsLog, true);
 
             if (result.loot) {
-                addToLog(`You found: ${result.loot.name}!`, true);
-                finalPlayerState.inventory = [...finalPlayerState.inventory, result.loot];
+                addToLog(`You found: ${result.loot.name}${result.loot.quantity > 1 ? ` (x${result.loot.quantity})` : ''}!`, true);
+                finalPlayerState.inventory = addItemToInventory(finalPlayerState.inventory, result.loot);
             }
             
             const defeatedMonsterId = originalCombatState.monster.id;
@@ -650,8 +689,15 @@ const App: React.FC = () => {
       const state = await fileUtils.loadGame(event);
       if (state) {
         // Migration for older saves
+        if (!state.settings) {
+            state.settings = { useImagen: true };
+        }
         if (!state.combatState) state.combatState = null;
+
+        const migrateItems = (items: Item[]): Item[] => items.map(item => ({ ...item, quantity: item.quantity === undefined ? 1 : item.quantity }));
+        
         if (state.player) {
+            if (!state.player.characterClass) state.player.characterClass = 'Warrior';
             if (!state.player.abilities) state.player.abilities = [];
             if (!state.player.equipment) state.player.equipment = { weapon: null, armor: null, helmet: null, boots: null, ring: null };
             if (state.player.pendingLevelUps === undefined) {
@@ -664,8 +710,17 @@ const App: React.FC = () => {
                 state.player.maxMana = maxMana;
             }
             if (state.player.gold === undefined) state.player.gold = 0;
+            state.player.inventory = migrateItems(state.player.inventory);
+            Object.values(state.player.equipment).forEach(item => {
+                if (item && item.quantity === undefined) item.quantity = 1;
+            });
         }
-        if (state.world && !state.world.vendors) state.world.vendors = [];
+        if (state.world) {
+            if (!state.world.vendors) state.world.vendors = [];
+            state.world.vendors.forEach(vendor => {
+                vendor.inventory = migrateItems(vendor.inventory);
+            });
+        }
         
         state.gamePhase = 'playing';
         state.isPaused = false;
@@ -706,7 +761,7 @@ const App: React.FC = () => {
 
 
   const handleEquipItem = useCallback((itemToEquip: Item) => {
-    if (!gameState.player || !itemToEquip) return;
+    if (!itemToEquip || itemToEquip.quantity === 0) return;
 
     const slot = itemToEquip.type as EquipmentSlot;
     if (!EQUIPMENT_SLOTS.includes(slot)) {
@@ -733,45 +788,40 @@ const App: React.FC = () => {
         
         updatePlayerResourcesOnEquip(newPlayerState, newEquipment);
         
+        addToLog(`Equipped ${itemToEquip.name}.`, true);
         return { ...prev, player: newPlayerState };
     });
-    
-    addToLog(`Equipped ${itemToEquip.name}.`, true);
-  }, [gameState.player, addToLog]);
+  }, [addToLog]);
 
   const handleUnequipItem = useCallback((slot: EquipmentSlot) => {
-    if (!gameState.player) return;
-
     setGameState(prev => {
         if (!prev.player) return prev;
         
         const itemToUnequip = prev.player.equipment[slot];
         if (!itemToUnequip) return prev;
 
+        addToLog(`Unequipped ${itemToUnequip.name}.`, true);
+
         const newInventory = [...prev.player.inventory, itemToUnequip];
         const newEquipment = { ...prev.player.equipment, [slot]: null };
         const newPlayerState = { ...prev.player, inventory: newInventory, equipment: newEquipment };
 
         updatePlayerResourcesOnEquip(newPlayerState, newEquipment);
-
+        
         return { ...prev, player: newPlayerState };
     });
-
-    addToLog(`Unequipped ${gameState.player.equipment[slot]!.name}.`, true);
-  }, [gameState.player, addToLog]);
+  }, [addToLog]);
 
   const handleUseItem = useCallback((item: Item) => {
-    if (!gameState.player) return;
-    
     if (item.type !== 'potion') return;
-
-    if ((item.healAmount && gameState.player.hp >= gameState.player.maxHp) && (item.manaAmount && gameState.player.mana >= gameState.player.maxMana)) {
-        addToLog("You are already at full health and mana.", true);
-        return;
-    }
 
     setGameState(prev => {
         if (!prev.player) return prev;
+        
+        if ((item.healAmount && prev.player.hp >= prev.player.maxHp) && (item.manaAmount && prev.player.mana >= prev.player.maxMana)) {
+            addToLog("You are already at full health and mana.", true);
+            return prev;
+        }
 
         const newPlayerState = { ...prev.player };
         let effects = [];
@@ -790,26 +840,39 @@ const App: React.FC = () => {
         const newInventory = [...prev.player.inventory];
         const itemIndex = newInventory.findIndex(i => i.id === item.id);
         if (itemIndex > -1) {
-            newInventory.splice(itemIndex, 1);
+             if (newInventory[itemIndex].quantity > 1) {
+                newInventory[itemIndex] = {...newInventory[itemIndex], quantity: newInventory[itemIndex].quantity - 1};
+             } else {
+                newInventory.splice(itemIndex, 1);
+             }
         }
         newPlayerState.inventory = newInventory;
         
         addToLog(`You use the ${item.name} and ${effects.join(' and ')}.`, true);
         return { ...prev, player: newPlayerState };
     });
-  }, [gameState.player, addToLog]);
+  }, [addToLog]);
+
+  const handleItemPrimaryAction = useCallback((item: Item) => {
+    if (EQUIPMENT_SLOTS.includes(item.type as EquipmentSlot)) {
+        handleEquipItem(item);
+    } else if (item.type === 'potion') {
+        handleUseItem(item);
+    } else {
+        addToLog(`You can't use or equip ${item.name}.`, true);
+    }
+  }, [handleEquipItem, handleUseItem, addToLog]);
   
   const openInventoryModal = useCallback(() => {
     if (!gameState.player) return;
     setModal(
         <InventoryScreen
             player={gameState.player}
-            onEquipItem={handleEquipItem}
+            onItemPrimaryAction={handleItemPrimaryAction}
             onUnequipItem={handleUnequipItem}
-            onUseItem={handleUseItem}
         />
     )
-  }, [gameState.player, handleEquipItem, handleUnequipItem, handleUseItem, setModal]);
+  }, [gameState.player, handleItemPrimaryAction, handleUnequipItem, setModal]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -834,10 +897,18 @@ const App: React.FC = () => {
   const handleContinue = () => setGameState(prev => ({...prev, isPaused: false}));
   const handleReturnToMenu = () => {
        setGameState(prev => ({
-           ...prev,
+           ...INITIAL_GAME_STATE, // Reset to initial state
            gamePhase: 'menu',
-           isPaused: false,
+           player: null, 
+           world: null,
        }));
+  };
+
+  const handleSettingsChange = (newSettings: GameSettings) => {
+    setGameState(prev => ({
+        ...prev,
+        settings: newSettings
+    }));
   };
   
   const renderGame = () => {
@@ -864,9 +935,6 @@ const App: React.FC = () => {
             <div className="flex-shrink-0 flex gap-4 h-52">
                 <div className="flex-grow-[3] w-0">
                     <LogPanel log={gameState.log} quest={gameState.world.quest} />
-                </div>
-                <div className="flex-grow-[2] w-0">
-                    <Legend />
                 </div>
                 <div className="flex-grow-[1] w-0">
                     <GameActions 
@@ -902,8 +970,28 @@ const App: React.FC = () => {
             </div>
         )}
         {gameState.modalContent && (
-             <ActionModal onClose={() => setModal(null)}>
-                {React.cloneElement(gameState.modalContent as React.ReactElement<any>, { onClose: () => setModal(null) })}
+            <ActionModal onClose={() => setModal(null)}>
+                {(() => {
+                    if (!gameState.modalContent) return null;
+                    const element = gameState.modalContent as React.ReactElement<any>;
+                    
+                    const props: any = { onClose: () => setModal(null) };
+                    
+                    if (element.type === InventoryScreen && gameState.player) {
+                        props.player = gameState.player;
+                    }
+                    
+                    if (element.type === VendorScreen && gameState.player && gameState.world) {
+                        props.player = gameState.player;
+                        const vendorId = element.props.vendor?.id;
+                        const vendor = gameState.world.vendors.find(v => v.id === vendorId);
+                        if (vendor) {
+                            props.vendor = vendor;
+                        }
+                    }
+
+                    return React.cloneElement(element, props);
+                })()}
             </ActionModal>
         )}
          {gameState.isPaused && (
@@ -914,8 +1002,9 @@ const App: React.FC = () => {
             />
         )}
         
-        {gameState.gamePhase === 'menu' && <MenuScreen onNewGame={() => setGameState(prev => ({...prev, gamePhase: 'characterCreation'}))} onLoadGame={handleLoadGame} onContinue={() => setGameState(prev => ({...prev, gamePhase: 'playing'}))} canContinue={!!gameState.player} />}
-        {gameState.gamePhase === 'characterCreation' && <CharacterCreationScreen onStartGame={handleCharacterCreated} />}
+        {gameState.gamePhase === 'menu' && <MenuScreen onNewGame={() => setGameState({ ...INITIAL_GAME_STATE, gamePhase: 'characterCreation' })} onLoadGame={handleLoadGame} onContinue={() => setGameState(prev => ({...prev, gamePhase: 'playing'}))} onGoToSettings={() => setGameState(prev => ({...prev, gamePhase: 'settings'}))} canContinue={!!gameState.player} />}
+        {gameState.gamePhase === 'settings' && <SettingsScreen onReturnToMenu={() => setGameState({ ...INITIAL_GAME_STATE, gamePhase: 'menu'})} settings={gameState.settings} onSettingsChange={handleSettingsChange} />}
+        {gameState.gamePhase === 'characterCreation' && <CharacterCreationScreen onStartGame={handleCharacterCreated} useImagen={gameState.settings.useImagen} />}
         {gameState.gamePhase === 'playing' && renderGame()}
      </>
   );
