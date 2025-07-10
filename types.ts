@@ -1,5 +1,8 @@
 import React from 'react';
 
+export type CharacterClass = 'Warrior' | 'Mage' | 'Rogue';
+export type ItemGrade = 'Common' | 'Uncommon' | 'Rare' | 'Epic' | 'Legendary';
+
 export interface Ability {
     id: string;
     name: string;
@@ -10,7 +13,7 @@ export interface Ability {
 export type EquipmentSlot = 'weapon' | 'armor' | 'helmet' | 'boots' | 'ring';
 export const EQUIPMENT_SLOTS: EquipmentSlot[] = ['weapon', 'armor', 'helmet', 'boots', 'ring'];
 
-export type ItemType = EquipmentSlot | 'potion' | 'misc';
+export type ItemType = EquipmentSlot | 'potion' | 'misc' | 'gem';
 
 export interface ItemStats {
   strength?: number;
@@ -21,9 +24,11 @@ export interface ItemStats {
 
 export interface Item {
   id: string;
-  name: string;
+  name:string;
   description: string;
   type: ItemType;
+  quantity: number;
+  grade?: ItemGrade;
   stats?: ItemStats;
   healAmount?: number;
   manaAmount?: number;
@@ -33,6 +38,7 @@ export interface Item {
 
 export interface Player {
   name: string;
+  characterClass: CharacterClass;
   level: number;
   xp: number;
   xpToNextLevel: number;
@@ -105,7 +111,11 @@ export interface CombatState {
 
 export type CombatAction = { type: 'attack' } | { type: 'ability', ability: Ability } | { type: 'item', item: Item };
 
-export type GamePhase = 'menu' | 'characterCreation' | 'playing';
+export type GamePhase = 'menu' | 'characterCreation' | 'playing' | 'settings';
+
+export interface GameSettings {
+  useImagen: boolean;
+}
 
 export interface GameState {
   gamePhase: GamePhase;
@@ -116,4 +126,5 @@ export interface GameState {
   modalContent: React.ReactNode | null;
   combatState: CombatState | null;
   isPaused: boolean;
+  settings: GameSettings;
 }

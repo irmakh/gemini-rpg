@@ -1,5 +1,5 @@
 import React from 'react';
-import { Player, ItemStats, EquipmentSlot, EQUIPMENT_SLOTS } from '../types';
+import { Player, ItemStats, EquipmentSlot, EQUIPMENT_SLOTS, ItemGrade } from '../types';
 import { HealthIcon, ManaIcon, XPIcon, LevelIcon, StrengthIcon, DexterityIcon, IntelligenceIcon, ArmorIcon } from './icons';
 
 interface CharacterSheetProps {
@@ -9,6 +9,16 @@ interface CharacterSheetProps {
   onUnequipItem: (slot: EquipmentSlot) => void;
   onLevelUpClick: () => void;
 }
+
+const getGradeColor = (grade: ItemGrade | undefined) => {
+    switch (grade) {
+        case 'Uncommon': return 'text-green-400';
+        case 'Rare': return 'text-blue-400';
+        case 'Epic': return 'text-purple-500';
+        case 'Legendary': return 'text-orange-400';
+        default: return 'text-slate-100';
+    }
+};
 
 const StatBar: React.FC<{ value: number; maxValue: number; color: string; icon: React.ReactNode; label: string }> = ({ value, maxValue, color, icon, label }) => {
   const percentage = maxValue > 0 ? Math.max(0, Math.min(100, (value / maxValue) * 100)) : 0;
@@ -96,7 +106,7 @@ const CharacterSheet: React.FC<CharacterSheetProps> = ({ player, equipmentStats,
                             <span className="capitalize text-slate-400 font-semibold">{slot}</span>
                             {item ? (
                                 <button onClick={() => onUnequipItem(slot)} className="text-right hover:text-red-400 transition-colors group" title={`Unequip ${item.name}`}>
-                                    <p className="font-bold text-slate-100 group-hover:text-red-400">{item.name}</p>
+                                    <p className={`font-bold ${getGradeColor(item.grade)} group-hover:text-red-400`}>{item.name}</p>
                                 </button>
                             ) : (
                                 <span className="text-slate-500 italic">Empty</span>

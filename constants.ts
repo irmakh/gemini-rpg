@@ -12,4 +12,7 @@ export const INITIAL_GAME_STATE: GameState = {
   modalContent: null,
   combatState: null,
   isPaused: false,
+  settings: {
+    useImagen: true,
+  },
 };

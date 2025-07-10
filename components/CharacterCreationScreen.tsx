@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { Player } from '../types';
+import { Player, CharacterClass } from '../types';
 import * as geminiService from '../services/geminiService';
 import { LoadingIcon, StrengthIcon, DexterityIcon, IntelligenceIcon } from './icons';
 
 interface CharacterCreationScreenProps {
   onStartGame: (player: Player) => void;
+  useImagen: boolean;
 }
 
-type CharacterClass = 'Warrior' | 'Mage' | 'Rogue';
-
-const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onStartGame }) => {
+const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onStartGame, useImagen }) => {
   const [name, setName] = useState('');
   const [characterClass, setCharacterClass] = useState<CharacterClass>('Warrior');
   const [generatedCharacter, setGeneratedCharacter] = useState<Partial<Player> | null>(null);
@@ -24,7 +23,7 @@ const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onSta
     setError(null);
     setIsLoading(true);
     try {
-      const partialPlayer = await geminiService.generateCharacter(name, characterClass);
+      const partialPlayer = await geminiService.generateCharacter(name, characterClass, useImagen);
       setGeneratedCharacter(partialPlayer);
     } catch (e) {
       console.error(e);
@@ -43,6 +42,7 @@ const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onSta
 
       const finalPlayer: Player = {
           name: name,
+          characterClass: characterClass,
           level: 1,
           xp: 0,
           xpToNextLevel: 40,
@@ -53,7 +53,7 @@ const CharacterCreationScreen: React.FC<CharacterCreationScreenProps> = ({ onSta
           gold: 25,
           position: { x: 1, y: 1 },
           stats: baseStats,
-          inventory: [{id: 'starter_sword', name: 'Rusty Sword', description: 'A basic sword.', type: 'weapon', stats: { strength: 1 }, buyPrice: 10, sellPrice: 5}],
+          inventory: [{id: 'starter_sword', name: 'Rusty Sword', description: 'A basic sword.', type: 'weapon', grade: 'Common', stats: { strength: 1 }, buyPrice: 10, sellPrice: 5, quantity: 1}],
           abilities: [],
           equipment: { weapon: null, armor: null, helmet: null, boots: null, ring: null },
           pendingLevelUps: 0,
